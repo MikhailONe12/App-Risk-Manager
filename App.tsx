@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   RiskProfile, 
@@ -50,6 +49,8 @@ import {
   Info,
   ChevronUp,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   LayoutDashboard,
   Calendar,
   Loader2
@@ -59,7 +60,7 @@ import {
 // Вставьте ваши данные сюда, чтобы они работали на всех устройствах по умолчанию
 // Paste your credentials here to persist them across all devices
 const HARDCODED_SHEET_ID = "1W5vMT2H7mTjo8HEqSEfxNofA_IBuIAjs5KSI3-ROjWg"; // e.g., "1W5vMT2H7mTjo8HEqSEfxNofA_IBuIAjs5KSI3-ROjWg"
-const HARDCODED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwDzwaEGKKQKG2Q0Ud1lBVhMNH58-OzCKMPiKLWHNPBG0Cf41lloZfgUAmswmJGTd0xWg/exec"; // e.g., "https://script.google.com/macros/s/.../exec"
+const HARDCODED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw22imEkInTYXt6bv_F1CUZ72TQa4Kb4l0NWB9s3tyQsxrSKdUhtMAB-Rf5bIwMFv_09A/exec"; // e.g., "https://script.google.com/macros/s/.../exec"
 // --------------------------
 
 const TRANSLATIONS = {
@@ -217,6 +218,10 @@ const App: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewState>('dashboard');
   const [isSyncing, setIsSyncing] = useState(false);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+  
+  // State for chart navigation
+  const [chartDate, setChartDate] = useState(new Date());
+
   const t = TRANSLATIONS[lang];
 
   const savedProfile = localStorage.getItem('riskProfile');
@@ -395,14 +400,6 @@ const App: React.FC = () => {
   const updateProfile = (updates: Partial<RiskProfile>) => setProfiles(prev => prev.map(p => p.id === activeProfileId ? { ...p, ...updates } : p));
   const updateSyncConfig = (updates: Partial<SyncConfig>) => setProfiles(prev => prev.map(p => p.id === activeProfileId ? { ...p, sync: { ...(p.sync || { sheetId: '', scriptUrl: '', isEnabled: false }), ...updates } } : p));
 
-  // --- Handle direct updates from Dashboard (Simplified to only visual updates if needed, since Sheet drives truth) ---
-  const handleProfileFieldUpdate = (field: keyof RiskProfile, value: string) => {
-     // NOTE: Since we are now driven by Sheet cells, direct editing might be overwritten on next sync.
-     // However, we allow it for temporary adjustments or if sync is off.
-     const numValue = parseFloat(value);
-     if (!isNaN(numValue)) updateProfile({ [field]: numValue });
-  };
-
   const generateAiInsights = async () => {
     if (history.length === 0) return;
     setIsAiLoading(true);
@@ -417,7 +414,51 @@ const App: React.FC = () => {
     }
   };
 
-  const renderDashboard = () => (
+  const handlePrevMonth = () => {
+    setChartDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setChartDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const monthlyChartData = useMemo(() => {
+    const year = chartDate.getFullYear();
+    const month = chartDate.getMonth();
+    
+    // Filter history for selected month/year
+    const monthlyTrades = history.filter(h => {
+      const d = new Date(h.date);
+      // Ensure we parse correctly - relying on YYYY-MM-DD standard format
+      const [y, m, day] = h.date.split('-').map(Number);
+      // Adjust month index (0-based) for comparison
+      return y === year && (m - 1) === month;
+    });
+
+    // Aggregate by date
+    const aggregated = monthlyTrades.reduce((acc, curr) => {
+      const dateKey = curr.date; 
+      acc[dateKey] = (acc[dateKey] || 0) + curr.pnlAmount;
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Convert to array and sort
+    return Object.entries(aggregated)
+      .map(([date, pnl]) => ({
+        date,
+        day: date.split('-')[2], // Just the day number for X-axis
+        pnlAmount: pnl
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [history, chartDate]);
+
+  const renderDashboard = () => {
+    const totalDays = activeProfile.sheetStats?.totalDays || activeProfile.totalEffectiveDays;
+    const daysLeftPct = totalDays > 0 ? (stats.daysLeft / totalDays) * 100 : 0;
+
+    const chartMonthLabel = new Intl.DateTimeFormat(lang === 'ru' ? 'ru-RU' : 'en-US', { month: 'long', year: 'numeric' }).format(chartDate);
+
+    return (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 pb-12">
       {/* Sync Status Indicator */}
       {isSyncing && (
@@ -437,19 +478,13 @@ const App: React.FC = () => {
         <div className="flex justify-between items-start mb-10 relative z-10">
           <MetricBox 
             label={t.balance} 
-            value={stats.currentCapital.toLocaleString()}
-            prefix="$"
+            value={`$${stats.currentCapital.toLocaleString()}`}
             color="text-blue-600 text-2xl" 
           />
           <div className="text-right flex flex-col items-end">
             <div className="flex items-center gap-2">
-               <span className="text-[10px] font-black text-slate-500 uppercase">{t.target} %</span>
-               <MetricBox 
-                 label=""
-                 value={activeProfile.targetAnnualReturnPct}
-                 suffix="%"
-                 color="text-slate-900 text-sm"
-               />
+               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t.target} %</span>
+               <span className="text-[10px] font-black text-slate-900">{activeProfile.targetAnnualReturnPct}</span>
             </div>
             <div className="text-lg font-black text-slate-900 mt-1">${stats.annualGoalAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
           </div>
@@ -462,16 +497,26 @@ const App: React.FC = () => {
           
           <MetricBox 
             label={t.riskLimit} 
-            value={stats.dailyRiskLimit.toLocaleString(undefined, { maximumFractionDigits: 0 })} 
-            prefix="$"
+            value={`$${stats.dailyRiskLimit.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} 
             color="text-rose-500"
           />
           
-          <MetricBox 
-            label={t.effDays} 
-            value={stats.daysLeft} 
-            subValue={`${t.of} ${activeProfile.sheetStats?.totalDays || activeProfile.totalEffectiveDays}`} 
-          />
+          <div className="flex flex-col">
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">{t.effDays}</span>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="text-xl font-black text-slate-900">{stats.daysTraded}</span>
+              <span className="text-[10px] text-slate-400 font-bold">{t.of} {totalDays}</span>
+            </div>
+            <div className="w-full h-1.5 bg-slate-200/50 rounded-full overflow-hidden">
+               <div 
+                 className={`h-full rounded-full transition-all duration-1000 ${
+                   daysLeftPct > 50 ? 'bg-emerald-500' : 
+                   daysLeftPct > 20 ? 'bg-amber-500' : 'bg-rose-500'
+                 }`} 
+                 style={{ width: `${daysLeftPct}%` }} 
+               />
+            </div>
+          </div>
         </div>
 
         <div className="mt-10">
@@ -559,16 +604,32 @@ const App: React.FC = () => {
       )}
 
       <div className="mb-6">
-        <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 px-1">{t.pnlChart}</h3>
+        <div className="flex items-center justify-between mb-4 px-1">
+          <h3 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t.pnlChart}</h3>
+          <div className="flex items-center gap-2 bg-white/40 rounded-lg p-1">
+            <button onClick={handlePrevMonth} className="p-1 text-slate-500 hover:text-slate-900"><ChevronLeft size={16} /></button>
+            <span className="text-[10px] font-black uppercase text-slate-700 min-w-[90px] text-center">{chartMonthLabel}</span>
+            <button onClick={handleNextMonth} className="p-1 text-slate-500 hover:text-slate-900"><ChevronRight size={16} /></button>
+          </div>
+        </div>
         <GlassCard className="h-56 p-2 bg-white/30 border-white/60">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={history.slice(-10)}>
+            <BarChart data={monthlyChartData}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(0,0,0,0.03)" />
-              <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{fontSize: 9, fill: '#64748b'}} tickFormatter={(s) => s.split('-').slice(1).join('/')} />
+              <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fontSize: 9, fill: '#64748b'}} />
               <YAxis axisLine={false} tickLine={false} tick={{fontSize: 9, fill: '#64748b'}} />
-              <Tooltip cursor={{fill: 'rgba(0,0,0,0.02)'}} contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #f1f5f9', borderRadius: '12px', fontSize: '11px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)'}} />
+              <Tooltip 
+                cursor={{fill: 'rgba(0,0,0,0.02)'}} 
+                contentStyle={{ backgroundColor: '#ffffff', border: '1px solid #f1f5f9', borderRadius: '12px', fontSize: '11px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)'}} 
+                labelFormatter={(day, payload) => {
+                  if (payload && payload[0] && payload[0].payload) {
+                    return payload[0].payload.date;
+                  }
+                  return day;
+                }}
+              />
               <Bar dataKey="pnlAmount" radius={[6, 6, 0, 0]} barSize={24}>
-                {history.slice(-10).map((entry, index) => <Cell key={`cell-${index}`} fill={entry.pnlAmount >= 0 ? '#10b981' : '#f43f5e'} />)}
+                {monthlyChartData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.pnlAmount >= 0 ? '#10b981' : '#f43f5e'} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -589,7 +650,8 @@ const App: React.FC = () => {
       <div className="mb-8"><GlassCard className="flex flex-col items-center justify-center py-8 bg-white active:bg-blue-50" onClick={() => setCurrentView('journal')}><div className="p-3 rounded-2xl bg-blue-50 mb-3 text-blue-600"><History size={24} /></div><span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{t.viewJournal}</span></GlassCard></div>
       <button onClick={() => setShowLogEntry(true)} className="w-full h-16 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[28px] flex items-center justify-center gap-3 font-black text-[10px] uppercase tracking-widest text-white shadow-xl shadow-blue-500/20 border border-white/20 active:scale-95 transition-all"><Plus size={20} className="bg-white/20 rounded-full p-0.5" /> {t.logBtn}</button>
     </div>
-  );
+    );
+  };
 
   const renderSettings = () => (
     <div className="animate-in slide-in-from-right-4 duration-500 space-y-8">
@@ -599,31 +661,6 @@ const App: React.FC = () => {
         </button>
         <h2 className="text-xl font-black uppercase tracking-widest text-slate-800">{t.settings}</h2>
       </div>
-
-      {/* Profile Card */}
-      <GlassCard className="space-y-6">
-        <h3 className="text-xs font-black text-blue-600 uppercase tracking-[0.2em] flex items-center gap-2">
-          <Database size={14} /> Profile Data
-        </h3>
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t.initialCap}</label>
-            <input type="number" value={activeProfile.initialCapital} onChange={(e) => updateProfile({ initialCapital: parseFloat(e.target.value) || 0 })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-blue-500 transition-all" />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t.riskPct}</label>
-            <input type="number" value={activeProfile.riskPerTradePct} onChange={(e) => updateProfile({ riskPerTradePct: parseFloat(e.target.value) || 0 })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-blue-500 transition-all" />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t.targetPct}</label>
-            <input type="number" value={activeProfile.targetAnnualReturnPct} onChange={(e) => updateProfile({ targetAnnualReturnPct: parseFloat(e.target.value) || 0 })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-blue-500 transition-all" />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest pl-1">{t.totalDays}</label>
-            <input type="number" value={activeProfile.totalEffectiveDays} onChange={(e) => updateProfile({ totalEffectiveDays: parseFloat(e.target.value) || 0 })} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-bold outline-none focus:border-blue-500 transition-all" />
-          </div>
-        </div>
-      </GlassCard>
 
       {/* Sync Card */}
       <GlassCard className="space-y-6 border-blue-100 bg-blue-50/40">

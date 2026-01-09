@@ -56,7 +56,7 @@ COPY ALL CODE BELOW AND PASTE IT INTO THE Code.gs FILE IN YOUR GOOGLE APPS SCRIP
 
 const CONFIG = {
   ZERO_DTE: { sheetName: 'OPTIONS_POSITIONAL', colId: 0, colTicker: 1, colPnL: 8, colDate: 9 },
-  STOCKS: { sheetName: 'TRADING_LOG', colDate: 0, colTicker: 1, colQty: 3, colEntry: 4, colExit: 5 },
+  STOCKS: { sheetName: 'TRADING_LOG', colDate: 0, colTicker: 1, colQty: 3, colEntry: 4, colExit: 5, colPnL: 7 }, // Added colPnL: 7 (Column H)
   LONG_OPT: { sheetName: 'OPTIONS_DAILY', colDate: 0, colTicker: 1, colContracts: 4, colExit: 6, colPnL: 7 }
 };
 
@@ -145,15 +145,17 @@ function readData(ss) {
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
       if (!row[CONFIG.STOCKS.colTicker]) continue;
-      const qty = Number(row[CONFIG.STOCKS.colQty]) || 0;
-      const entry = Number(row[CONFIG.STOCKS.colEntry]) || 0;
-      const exit = Number(row[CONFIG.STOCKS.colExit]) || 0;
-      let pnl = 0;
-      if (exit !== 0 && entry !== 0) pnl = (exit - entry) * qty;
+      
+      // Use Column H (Index 7) to check PnL
+      const pnl = Number(row[CONFIG.STOCKS.colPnL]) || 0;
+      
+      // Filter: If PnL is 0, skip this record
+      if (pnl === 0) continue;
+
       journal.push({
         id: 'stk_' + i + '_' + (row[CONFIG.STOCKS.colTicker]),
         date: formatDate(row[CONFIG.STOCKS.colDate] || new Date()), 
-        pnlAmount: pnl,
+        pnlAmount: pnl, // Use value from sheet
         status: 'TRADED',
         category: 'STOCKS',
         subCategory: 'SELF_WORK',
