@@ -60,7 +60,7 @@ import {
 // Вставьте ваши данные сюда, чтобы они работали на всех устройствах по умолчанию
 // Paste your credentials here to persist them across all devices
 const HARDCODED_SHEET_ID = "1W5vMT2H7mTjo8HEqSEfxNofA_IBuIAjs5KSI3-ROjWg"; // e.g., "1W5vMT2H7mTjo8HEqSEfxNofA_IBuIAjs5KSI3-ROjWg"
-const HARDCODED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw22imEkInTYXt6bv_F1CUZ72TQa4Kb4l0NWB9s3tyQsxrSKdUhtMAB-Rf5bIwMFv_09A/exec"; // e.g., "https://script.google.com/macros/s/.../exec"
+const HARDCODED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzeND0ZWbjJh-CPA2D9tGb7AAKXPq-iVSymTcPW4e5b6TPOTWTYNmcyd2ywCjBHJWOx0A/exec"; // e.g., "https://script.google.com/macros/s/.../exec"
 // --------------------------
 
 const TRANSLATIONS = {
@@ -71,7 +71,7 @@ const TRANSLATIONS = {
     remGoal: "Remaining Goal",
     dailyAvg: "Daily Avg Needed",
     riskLimit: "Daily Risk Limit",
-    effDays: "Effective Days",
+    effDays: "Days Left",
     progress: "PROGRESS",
     pnlChart: "Performance (P&L)",
     aiInsight: "AI Strategy Insight",
@@ -140,7 +140,7 @@ const TRANSLATIONS = {
     remGoal: "Остаток Цели",
     dailyAvg: "Цель на день",
     riskLimit: "Лимит Риска",
-    effDays: "Торговые Дни",
+    effDays: "Осталось дней",
     progress: "ПРОГРЕСС",
     pnlChart: "Результаты (P&L)",
     aiInsight: "AI Аналитика Стратегии",
@@ -504,7 +504,7 @@ const App: React.FC = () => {
           <div className="flex flex-col">
             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">{t.effDays}</span>
             <div className="flex items-baseline gap-2 mb-2">
-              <span className="text-xl font-black text-slate-900">{stats.daysTraded}</span>
+              <span className="text-xl font-black text-slate-900">{stats.daysLeft.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
               <span className="text-[10px] text-slate-400 font-bold">{t.of} {totalDays}</span>
             </div>
             <div className="w-full h-1.5 bg-slate-200/50 rounded-full overflow-hidden">

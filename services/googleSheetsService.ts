@@ -1,4 +1,3 @@
-
 import { DailyStat, RiskProfile, SyncConfig, SheetStats } from '../types';
 
 /**
@@ -57,7 +56,7 @@ COPY ALL CODE BELOW AND PASTE IT INTO THE Code.gs FILE IN YOUR GOOGLE APPS SCRIP
 const CONFIG = {
   ZERO_DTE: { sheetName: 'OPTIONS_POSITIONAL', colId: 0, colTicker: 1, colPnL: 8, colDate: 9 },
   STOCKS: { sheetName: 'TRADING_LOG', colDate: 0, colTicker: 1, colQty: 3, colEntry: 4, colExit: 5, colPnL: 7 }, // Added colPnL: 7 (Column H)
-  LONG_OPT: { sheetName: 'OPTIONS_DAILY', colDate: 0, colTicker: 1, colContracts: 4, colExit: 6, colPnL: 7 }
+  LONG_OPT: { sheetName: 'OPTIONS_DAILY', colDate: 0, colTicker: 1, colContracts: 4, colExit: 6, colPnL: 7, colCheck: 8 } // Added colCheck: 8 (Column I)
 };
 
 function doGet(e) {
@@ -172,6 +171,12 @@ function readData(ss) {
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
       if (!row[CONFIG.LONG_OPT.colTicker]) continue;
+      
+      // Check check-column (Column I / Index 8)
+      // If 0, skip the trade
+      const checkVal = Number(row[CONFIG.LONG_OPT.colCheck]);
+      if (checkVal === 0) continue;
+
       journal.push({
         id: 'lopt_' + i,
         date: formatDate(row[CONFIG.LONG_OPT.colDate]),
