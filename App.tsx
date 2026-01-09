@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   RiskProfile, 
   DailyStat, 
@@ -51,8 +51,16 @@ import {
   ChevronUp,
   ChevronDown,
   LayoutDashboard,
-  Calendar
+  Calendar,
+  Loader2
 } from 'lucide-react';
+
+// --- USER CONFIGURATION ---
+// Вставьте ваши данные сюда, чтобы они работали на всех устройствах по умолчанию
+// Paste your credentials here to persist them across all devices
+const HARDCODED_SHEET_ID = "1W5vMT2H7mTjo8HEqSEfxNofA_IBuIAjs5KSI3-ROjWg"; // e.g., "1W5vMT2H7mTjo8HEqSEfxNofA_IBuIAjs5KSI3-ROjWg"
+const HARDCODED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxJZJF8uTEtOIf66-wLv0c7xcSVh32G5PD43SxGetE4HtEWBzJdWAw-V2cWPMW2T5N-/exec"; // e.g., "https://script.google.com/macros/s/.../exec"
+// --------------------------
 
 const TRANSLATIONS = {
   en: {
@@ -115,6 +123,7 @@ const TRANSLATIONS = {
     syncSuccess: "Data synchronized!",
     syncError: "Sync failed. Check settings.",
     syncDisclaimer: "SYNC WILL AUTOMATICALLY DOWNLOAD CLOUD RECORDS ON STARTUP AND UPLOAD NEW TRADES UPON LOGGING. ENSURE YOUR APPS SCRIPT IS DEPLOYED.",
+    restoring: "Restoring from cloud...",
     strategies: {
       CREDIT_SPREAD: "Credit Spread",
       IRON_CONDOR: "Iron Condor",
@@ -183,6 +192,7 @@ const TRANSLATIONS = {
     syncSuccess: "Данные синхронизированы!",
     syncError: "Ошибка синхронизации. Проверьте настройки.",
     syncDisclaimer: "СИНХРОНИЗАЦИЯ БУДЕТ АВТОМАТИЧЕСКИ ЗАГРУЖАТЬ ЗАПИСИ ИЗ ОБЛАКА ПРИ ЗАПУСКЕ И ОТПРАВЛЯТЬ НОВЫЕ СДЕЛКИ ПРИ ИХ ДОБАВЛЕНИИ. УБЕДИТЕСЬ, ЧТО ВАШ APPS SCRIPT РАЗВЕРНУТ.",
+    restoring: "Восстановление из облака...",
     strategies: {
       CREDIT_SPREAD: "Credit Spread",
       IRON_CONDOR: "Iron Condor",
@@ -206,25 +216,40 @@ const App: React.FC = () => {
   const [lang, setLang] = useState<Language>('ru');
   const [currentView, setCurrentView] = useState<ViewState>('dashboard');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const t = TRANSLATIONS[lang];
 
   const savedProfile = localStorage.getItem('riskProfile');
   const savedHistory = localStorage.getItem('tradeHistory');
 
-  const [profiles, setProfiles] = useState<RiskProfile[]>(savedProfile ? JSON.parse(savedProfile) : [
-    {
-      id: '1',
-      name: 'Scalping Acc',
-      initialCapital: 45763.00,
-      currentBalance: 45763.00,
-      riskPerTradePct: 1.00,
-      targetAnnualReturnPct: 15.00,
-      totalEffectiveDays: 225.9,
-      maxMissedDaysPct: 10.00,
-      isActive: true,
-      sync: { sheetId: '', scriptUrl: '', isEnabled: false }
+  // Initialize profiles with hardcoded defaults if available
+  const [profiles, setProfiles] = useState<RiskProfile[]>(() => {
+    const initial = savedProfile ? JSON.parse(savedProfile) : [
+      {
+        id: '1',
+        name: 'Scalping Acc',
+        initialCapital: 45763.00,
+        currentBalance: 45763.00,
+        riskPerTradePct: 1.00,
+        targetAnnualReturnPct: 15.00,
+        totalEffectiveDays: 225.9,
+        maxMissedDaysPct: 10.00,
+        isActive: true,
+        sync: { sheetId: '', scriptUrl: '', isEnabled: false }
+      }
+    ];
+
+    // Apply hardcoded config if not present or if explicit override desired
+    // We check if the sync config is empty or disabled, and if we have hardcoded values, we inject them
+    if (HARDCODED_SHEET_ID && HARDCODED_SCRIPT_URL) {
+       initial[0].sync = {
+         sheetId: HARDCODED_SHEET_ID,
+         scriptUrl: HARDCODED_SCRIPT_URL,
+         isEnabled: true
+       };
     }
-  ]);
+    return initial;
+  });
 
   const [activeProfileId, setActiveProfileId] = useState<string>('1');
   const [history, setHistory] = useState<DailyStat[]>(savedHistory ? JSON.parse(savedHistory) : []);
@@ -249,22 +274,59 @@ const App: React.FC = () => {
     localStorage.setItem('tradeHistory', JSON.stringify(history));
   }, [profiles, history]);
 
-  const handleSync = async (forceWrite = false) => {
-    if (!activeProfile.sync?.isEnabled) return;
+  // Handle Sync Logic
+  const handleSync = useCallback(async (forceWrite = false) => {
+    if (!activeProfile.sync?.isEnabled || !activeProfile.sync?.sheetId) return;
+    
     setIsSyncing(true);
     try {
       const result = await syncWithGoogleSheets(activeProfile.sync, forceWrite ? { profile: activeProfile, journal: history } : undefined);
+      
       if (result && !forceWrite) {
+        // Read mode: Merge data
         const remoteHistory: DailyStat[] = result.journal || [];
-        const localIds = new Set(history.map(h => h.id));
-        const newRecords = remoteHistory.filter(r => !localIds.has(r.id));
-        if (newRecords.length > 0 || result.profile) {
-          if (newRecords.length > 0) setHistory(prev => [...prev, ...newRecords].sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
-          if (result.profile) updateProfile(result.profile);
+        
+        // Simple merge: trust remote if local is empty, or just append new ones. 
+        // For a robust sync, we usually rebuild from remote if it's the "source of truth".
+        // Here we'll take remote history as truth if we have it, to ensure cross-device consistency.
+        if (remoteHistory.length > 0) {
+           setHistory(remoteHistory.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+        }
+
+        if (result.profile) {
+           updateProfile(result.profile);
         }
       }
-    } catch (e) { alert(t.syncError); } finally { setIsSyncing(false); }
-  };
+    } catch (e) { 
+      console.error(e);
+      // Don't alert on auto-sync to avoid annoyance
+      if (forceWrite) alert(t.syncError); 
+    } finally { 
+      setIsSyncing(false); 
+      setIsInitialLoad(false);
+    }
+  }, [activeProfile.sync, history, t.syncError]);
+
+  // Initial Auto-Sync on Mount
+  useEffect(() => {
+    if (activeProfile.sync?.isEnabled && activeProfile.sync?.scriptUrl) {
+      handleSync(false);
+    } else {
+      setIsInitialLoad(false);
+    }
+  }, []); // Run once on mount
+
+  // Auto-sync on visibility change (returning to app)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && activeProfile.sync?.isEnabled) {
+        handleSync(false);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [handleSync, activeProfile.sync?.isEnabled]);
+
 
   const handleAddRecord = async () => {
     const pnl = parseFloat(inputPnl) || 0;
@@ -346,6 +408,16 @@ const App: React.FC = () => {
 
   const renderDashboard = () => (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 pb-12">
+      {/* Sync Status Indicator for Dashboard */}
+      {isSyncing && (
+        <div className="flex justify-center mb-4">
+           <div className="bg-blue-600/10 text-blue-600 px-4 py-1.5 rounded-full flex items-center gap-2 text-[10px] font-black uppercase tracking-widest border border-blue-600/20">
+             <Loader2 size={12} className="animate-spin" />
+             {t.restoring}
+           </div>
+        </div>
+      )}
+
       {/* Header Cards */}
       <GlassCard className="mb-6 relative overflow-hidden">
         <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><Target size={120} className="text-blue-500" /></div>
@@ -534,7 +606,7 @@ const App: React.FC = () => {
             <input type="text" value={activeProfile.sync?.scriptUrl || ''} onChange={(e) => updateSyncConfig({ scriptUrl: e.target.value })} placeholder="https://script.google.com/..." className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold outline-none" />
           </div>
           <button 
-            onClick={() => handleSync()} 
+            onClick={() => handleSync(true)} 
             disabled={isSyncing}
             className="w-full h-12 bg-blue-600/10 border border-blue-500/20 rounded-xl font-black text-[10px] uppercase tracking-widest flex items-center justify-center gap-2 text-blue-600 hover:bg-blue-600/20 transition-colors"
           >
