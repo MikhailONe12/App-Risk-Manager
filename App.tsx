@@ -454,6 +454,8 @@ const App: React.FC = () => {
 
   const renderDashboard = () => {
     const totalDays = activeProfile.sheetStats?.totalDays || activeProfile.totalEffectiveDays;
+    // Calculate percentage based on Days LEFT (remaining)
+    // If 221 days left out of 226, pct = 97.7% (Full Green Bar)
     const daysLeftPct = totalDays > 0 ? (stats.daysLeft / totalDays) * 100 : 0;
 
     const chartMonthLabel = new Intl.DateTimeFormat(lang === 'ru' ? 'ru-RU' : 'en-US', { month: 'long', year: 'numeric' }).format(chartDate);
@@ -507,6 +509,7 @@ const App: React.FC = () => {
               <span className="text-xl font-black text-slate-900">{stats.daysLeft.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span>
               <span className="text-[10px] text-slate-400 font-bold">{t.of} {totalDays}</span>
             </div>
+            {/* Progress bar visualizes Remaining Days: High % = Green, Low % = Red */}
             <div className="w-full h-1.5 bg-slate-200/50 rounded-full overflow-hidden">
                <div 
                  className={`h-full rounded-full transition-all duration-1000 ${
