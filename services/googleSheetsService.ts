@@ -110,7 +110,7 @@ function readData(ss) {
       remainingGoal: Number(getCellValue(ss, 'CAPITAL', 'J2')),
       dailyTarget: Number(getCellValue(ss, 'DAILY_TARGET', 'D2')),
       riskLimit: Number(getCellValue(ss, 'RISK', 'B7')),
-      daysTraded: Number(getCellValue(ss, 'SETTINGS', 'B9')),
+      daysRemaining: Number(getCellValue(ss, 'SETTINGS', 'B9')), // CHANGED from daysTraded to daysRemaining
       totalDays: Number(getCellValue(ss, 'SETTINGS', 'B8'))
     }
   };
@@ -194,45 +194,5 @@ function readData(ss) {
     status: 'ok', 
     data: { profile, journal }
   })).setMimeType(ContentService.MimeType.JSON);
-}
-
-function writeData(ss, payload) {
-  // Мы не перезаписываем профиль полностью, чтобы не сломать формулы в таблице
-  // Записываем только сделки
-  const journal = payload.journal;
-  const lastTrade = journal[journal.length - 1];
-  if (!lastTrade) return ContentService.createTextOutput(JSON.stringify({status: 'ok'})).setMimeType(ContentService.MimeType.JSON);
-  
-  let targetSheet;
-  let rowData = [];
-  
-  if (lastTrade.subCategory === 'ZERO_DTE') {
-    targetSheet = ss.getSheetByName(CONFIG.ZERO_DTE.sheetName);
-    rowData = new Array(15).fill('');
-    rowData[CONFIG.ZERO_DTE.colId] = lastTrade.id;
-    rowData[CONFIG.ZERO_DTE.colTicker] = lastTrade.ticker;
-    rowData[CONFIG.ZERO_DTE.colPnL] = lastTrade.pnlAmount;
-    rowData[CONFIG.ZERO_DTE.colDate] = lastTrade.date;
-    
-  } else if (lastTrade.category === 'STOCKS') {
-    targetSheet = ss.getSheetByName(CONFIG.STOCKS.sheetName);
-    rowData = new Array(10).fill('');
-    rowData[CONFIG.STOCKS.colDate] = lastTrade.date;
-    rowData[CONFIG.STOCKS.colTicker] = lastTrade.ticker;
-    rowData[6] = "PnL: " + lastTrade.pnlAmount; 
-    
-  } else if (lastTrade.subCategory === 'LONG_OPTIONS') {
-    targetSheet = ss.getSheetByName(CONFIG.LONG_OPT.sheetName);
-    rowData = new Array(10).fill('');
-    rowData[CONFIG.LONG_OPT.colDate] = lastTrade.date;
-    rowData[CONFIG.LONG_OPT.colTicker] = lastTrade.ticker;
-    rowData[CONFIG.LONG_OPT.colPnL] = lastTrade.pnlAmount;
-  }
-  
-  if (targetSheet) {
-    targetSheet.appendRow(rowData);
-  }
-  
-  return ContentService.createTextOutput(JSON.stringify({status: 'ok'})).setMimeType(ContentService.MimeType.JSON);
 }
 */

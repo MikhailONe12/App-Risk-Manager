@@ -35,7 +35,7 @@ export interface SheetStats {
   remainingGoal: number;      // CAPITAL!J2
   dailyTarget: number;        // DAILY_TARGET!D2
   riskLimit: number;          // RISK!B7
-  daysTraded: number;         // SETTINGS!B9
+  daysRemaining: number;      // SETTINGS!B9 (Renamed from daysTraded to match actual sheet data)
   totalDays: number;          // SETTINGS!B8
 }
 

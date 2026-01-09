@@ -10,11 +10,23 @@ export const calculateDashboardStats = (
 
   const targetAnnualGoalAmount = sheet?.targetAmountDollar ?? (profile.initialCapital * (profile.targetAnnualReturnPct / 100));
   
-  const daysTraded = sheet?.daysTraded ?? history.filter(d => d.status === DayStatus.TRADED).length;
-  const daysSkipped = history.filter(d => d.status === DayStatus.SKIPPED).length;
-  
   const totalEffectiveDays = sheet?.totalDays ?? profile.totalEffectiveDays;
-  const daysLeft = Math.max(0, totalEffectiveDays - daysTraded);
+  
+  // LOGIC FIX: 
+  // If we have sheet stats, sheet.daysRemaining IS the days left (e.g., 221).
+  // If not, calculate locally: total - traded.
+  let daysLeft: number;
+  let daysTraded: number;
+
+  if (sheet?.daysRemaining !== undefined) {
+    daysLeft = sheet.daysRemaining;
+    daysTraded = Math.max(0, totalEffectiveDays - daysLeft);
+  } else {
+    daysTraded = history.filter(d => d.status === DayStatus.TRADED).length;
+    daysLeft = Math.max(0, totalEffectiveDays - daysTraded);
+  }
+  
+  const daysSkipped = history.filter(d => d.status === DayStatus.SKIPPED).length;
 
   const totalPnl = history.reduce((acc, val) => acc + val.pnlAmount, 0);
   

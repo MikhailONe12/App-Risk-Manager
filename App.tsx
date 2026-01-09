@@ -60,7 +60,7 @@ import {
 // Вставьте ваши данные сюда, чтобы они работали на всех устройствах по умолчанию
 // Paste your credentials here to persist them across all devices
 const HARDCODED_SHEET_ID = "1W5vMT2H7mTjo8HEqSEfxNofA_IBuIAjs5KSI3-ROjWg"; // e.g., "1W5vMT2H7mTjo8HEqSEfxNofA_IBuIAjs5KSI3-ROjWg"
-const HARDCODED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzeND0ZWbjJh-CPA2D9tGb7AAKXPq-iVSymTcPW4e5b6TPOTWTYNmcyd2ywCjBHJWOx0A/exec"; // e.g., "https://script.google.com/macros/s/.../exec"
+const HARDCODED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwou11IZQLEdoHpqMEtnD5e69wwL5VxmJrqmucdNJONJKkb8CzgijzqpA3jm-GVutNZpA/exec"; // e.g., "https://script.google.com/macros/s/.../exec"
 // --------------------------
 
 const TRANSLATIONS = {
