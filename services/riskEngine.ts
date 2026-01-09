@@ -5,20 +5,28 @@ export const calculateDashboardStats = (
   profile: RiskProfile,
   history: DailyStat[]
 ): DashboardStats => {
-  const targetAnnualGoalAmount = profile.initialCapital * (profile.targetAnnualReturnPct / 100);
+  // Use synced Sheet Stats if available, otherwise fallback to local calculation
+  const sheet = profile.sheetStats;
+
+  const targetAnnualGoalAmount = sheet?.targetAmountDollar ?? (profile.initialCapital * (profile.targetAnnualReturnPct / 100));
   
-  const daysTraded = history.filter(d => d.status === DayStatus.TRADED).length;
+  const daysTraded = sheet?.daysTraded ?? history.filter(d => d.status === DayStatus.TRADED).length;
   const daysSkipped = history.filter(d => d.status === DayStatus.SKIPPED).length;
   
-  const totalEffectiveDays = profile.totalEffectiveDays;
-  const daysLeft = Math.max(1, Math.floor(totalEffectiveDays - daysTraded));
+  const totalEffectiveDays = sheet?.totalDays ?? profile.totalEffectiveDays;
+  const daysLeft = Math.max(0, totalEffectiveDays - daysTraded);
 
   const totalPnl = history.reduce((acc, val) => acc + val.pnlAmount, 0);
-  const currentProgressAmount = totalPnl;
-  const remainingGoal = Math.max(0, targetAnnualGoalAmount - currentProgressAmount);
   
-  const dailyRiskLimit = profile.currentBalance * (profile.riskPerTradePct / 100);
-  const requiredDailyAvg = remainingGoal / daysLeft;
+  // If we have sheet stats, we use them directly. 
+  // Note: currentProgressAmount is usually calculated from history, but here we use it for the progress bar.
+  const currentProgressAmount = totalPnl; 
+
+  const remainingGoal = sheet?.remainingGoal ?? Math.max(0, targetAnnualGoalAmount - currentProgressAmount);
+  
+  const dailyRiskLimit = sheet?.riskLimit ?? (profile.currentBalance * (profile.riskPerTradePct / 100));
+  const requiredDailyAvg = sheet?.dailyTarget ?? (daysLeft > 0 ? remainingGoal / daysLeft : 0);
+  
   const missedDaysPercent = (daysSkipped / totalEffectiveDays) * 100;
 
   const categoryBreakdown: Record<string, number> = {};

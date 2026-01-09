@@ -59,7 +59,7 @@ import {
 // Вставьте ваши данные сюда, чтобы они работали на всех устройствах по умолчанию
 // Paste your credentials here to persist them across all devices
 const HARDCODED_SHEET_ID = "1W5vMT2H7mTjo8HEqSEfxNofA_IBuIAjs5KSI3-ROjWg"; // e.g., "1W5vMT2H7mTjo8HEqSEfxNofA_IBuIAjs5KSI3-ROjWg"
-const HARDCODED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxJZJF8uTEtOIf66-wLv0c7xcSVh32G5PD43SxGetE4HtEWBzJdWAw-V2cWPMW2T5N-/exec"; // e.g., "https://script.google.com/macros/s/.../exec"
+const HARDCODED_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwDzwaEGKKQKG2Q0Ud1lBVhMNH58-OzCKMPiKLWHNPBG0Cf41lloZfgUAmswmJGTd0xWg/exec"; // e.g., "https://script.google.com/macros/s/.../exec"
 // --------------------------
 
 const TRANSLATIONS = {
@@ -240,7 +240,6 @@ const App: React.FC = () => {
     ];
 
     // Apply hardcoded config if not present or if explicit override desired
-    // We check if the sync config is empty or disabled, and if we have hardcoded values, we inject them
     if (HARDCODED_SHEET_ID && HARDCODED_SCRIPT_URL) {
        initial[0].sync = {
          sheetId: HARDCODED_SHEET_ID,
@@ -285,27 +284,30 @@ const App: React.FC = () => {
       if (result && !forceWrite) {
         // Read mode: Merge data
         const remoteHistory: DailyStat[] = result.journal || [];
-        
-        // Simple merge: trust remote if local is empty, or just append new ones. 
-        // For a robust sync, we usually rebuild from remote if it's the "source of truth".
-        // Here we'll take remote history as truth if we have it, to ensure cross-device consistency.
         if (remoteHistory.length > 0) {
            setHistory(remoteHistory.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
         }
 
         if (result.profile) {
-           updateProfile(result.profile);
+           // Here we correctly map the new sheetStats from the server to our local Profile state
+           const updatedProfile: RiskProfile = {
+              ...activeProfile,
+              currentBalance: result.profile.currentBalance || activeProfile.currentBalance,
+              targetAnnualReturnPct: result.profile.targetAnnualReturnPct || activeProfile.targetAnnualReturnPct,
+              // Only update these if sheetStats are present
+              sheetStats: result.profile.sheetStats || activeProfile.sheetStats
+           };
+           updateProfile(updatedProfile);
         }
       }
     } catch (e) { 
       console.error(e);
-      // Don't alert on auto-sync to avoid annoyance
       if (forceWrite) alert(t.syncError); 
     } finally { 
       setIsSyncing(false); 
       setIsInitialLoad(false);
     }
-  }, [activeProfile.sync, history, t.syncError]);
+  }, [activeProfile, history, t.syncError]);
 
   // Initial Auto-Sync on Mount
   useEffect(() => {
@@ -314,9 +316,9 @@ const App: React.FC = () => {
     } else {
       setIsInitialLoad(false);
     }
-  }, []); // Run once on mount
+  }, []); 
 
-  // Auto-sync on visibility change (returning to app)
+  // Auto-sync on visibility change
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && activeProfile.sync?.isEnabled) {
@@ -344,10 +346,12 @@ const App: React.FC = () => {
       riskLimitSnapshot: stats.dailyRiskLimit,
     };
 
-    // Sort history chronologically
     const updatedHistory = [...history, newStat].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    
     setHistory(updatedHistory);
+    // Note: We do NOT update balance locally here anymore if we want to rely on the Sheet as the source of truth.
+    // But for UX responsiveness, we can update it temporarily. 
+    // Ideally, the user syncs after adding a trade, and the sheet formula updates the balance, then syncs back.
+    // For now, we update local balance for immediate feedback.
     const updatedProfile = { ...activeProfile, currentBalance: activeProfile.currentBalance + pnl };
     setProfiles(profiles.map(p => p.id === activeProfileId ? updatedProfile : p));
 
@@ -361,7 +365,6 @@ const App: React.FC = () => {
 
     if (activeProfile.sync?.isEnabled) {
       setIsSyncing(true);
-      // Pass the updated history directly to sync, as React state update might not be flushed yet
       syncWithGoogleSheets(activeProfile.sync, { profile: updatedProfile, journal: updatedHistory })
         .catch(() => alert(t.syncError))
         .finally(() => setIsSyncing(false));
@@ -392,6 +395,14 @@ const App: React.FC = () => {
   const updateProfile = (updates: Partial<RiskProfile>) => setProfiles(prev => prev.map(p => p.id === activeProfileId ? { ...p, ...updates } : p));
   const updateSyncConfig = (updates: Partial<SyncConfig>) => setProfiles(prev => prev.map(p => p.id === activeProfileId ? { ...p, sync: { ...(p.sync || { sheetId: '', scriptUrl: '', isEnabled: false }), ...updates } } : p));
 
+  // --- Handle direct updates from Dashboard (Simplified to only visual updates if needed, since Sheet drives truth) ---
+  const handleProfileFieldUpdate = (field: keyof RiskProfile, value: string) => {
+     // NOTE: Since we are now driven by Sheet cells, direct editing might be overwritten on next sync.
+     // However, we allow it for temporary adjustments or if sync is off.
+     const numValue = parseFloat(value);
+     if (!isNaN(numValue)) updateProfile({ [field]: numValue });
+  };
+
   const generateAiInsights = async () => {
     if (history.length === 0) return;
     setIsAiLoading(true);
@@ -408,7 +419,7 @@ const App: React.FC = () => {
 
   const renderDashboard = () => (
     <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 pb-12">
-      {/* Sync Status Indicator for Dashboard */}
+      {/* Sync Status Indicator */}
       {isSyncing && (
         <div className="flex justify-center mb-4">
            <div className="bg-blue-600/10 text-blue-600 px-4 py-1.5 rounded-full flex items-center gap-2 text-[10px] font-black uppercase tracking-widest border border-blue-600/20">
@@ -418,22 +429,51 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Header Cards */}
+      {/* Control Center Card */}
       <GlassCard className="mb-6 relative overflow-hidden">
         <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><Target size={120} className="text-blue-500" /></div>
+        
+        {/* Top Row: Balance & Target */}
         <div className="flex justify-between items-start mb-10 relative z-10">
-          <MetricBox label={t.balance} value={`$${stats.currentCapital.toLocaleString()}`} color="text-blue-600 text-2xl" />
+          <MetricBox 
+            label={t.balance} 
+            value={stats.currentCapital.toLocaleString()}
+            prefix="$"
+            color="text-blue-600 text-2xl" 
+          />
           <div className="text-right flex flex-col items-end">
-            <span className="text-[10px] font-black text-slate-500 uppercase">{t.target} {activeProfile.targetAnnualReturnPct}%</span>
-            <div className="text-lg font-black text-slate-900">${stats.annualGoalAmount.toLocaleString()}</div>
+            <div className="flex items-center gap-2">
+               <span className="text-[10px] font-black text-slate-500 uppercase">{t.target} %</span>
+               <MetricBox 
+                 label=""
+                 value={activeProfile.targetAnnualReturnPct}
+                 suffix="%"
+                 color="text-slate-900 text-sm"
+               />
+            </div>
+            <div className="text-lg font-black text-slate-900 mt-1">${stats.annualGoalAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
           </div>
         </div>
+
+        {/* Stats Grid */}
         <div className="grid grid-cols-2 gap-y-8 gap-x-4 relative z-10">
-          <MetricBox label={t.remGoal} value={`$${stats.remainingGoal.toFixed(2)}`} />
-          <MetricBox label={t.dailyAvg} value={`$${stats.requiredDailyAvg.toFixed(2)}`} color="text-emerald-600" />
-          <MetricBox label={t.riskLimit} value={`$${stats.dailyRiskLimit.toFixed(2)}`} color="text-rose-500" />
-          <MetricBox label={t.effDays} value={stats.daysLeft} subValue={`${t.of} ${activeProfile.totalEffectiveDays}`} />
+          <MetricBox label={t.remGoal} value={`$${stats.remainingGoal.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} />
+          <MetricBox label={t.dailyAvg} value={`$${stats.requiredDailyAvg.toLocaleString(undefined, { maximumFractionDigits: 0 })}`} color="text-emerald-600" />
+          
+          <MetricBox 
+            label={t.riskLimit} 
+            value={stats.dailyRiskLimit.toLocaleString(undefined, { maximumFractionDigits: 0 })} 
+            prefix="$"
+            color="text-rose-500"
+          />
+          
+          <MetricBox 
+            label={t.effDays} 
+            value={stats.daysLeft} 
+            subValue={`${t.of} ${activeProfile.sheetStats?.totalDays || activeProfile.totalEffectiveDays}`} 
+          />
         </div>
+
         <div className="mt-10">
           <div className="flex justify-between text-[10px] font-black text-slate-500 mb-3 tracking-widest uppercase">
             <span>{t.progress}</span>

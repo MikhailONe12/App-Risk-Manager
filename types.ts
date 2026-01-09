@@ -30,18 +30,27 @@ export interface SyncConfig {
   isEnabled: boolean;
 }
 
-// Added RiskProfile interface as it was missing and referenced in multiple files
+export interface SheetStats {
+  targetAmountDollar: number; // SETTINGS!B4
+  remainingGoal: number;      // CAPITAL!J2
+  dailyTarget: number;        // DAILY_TARGET!D2
+  riskLimit: number;          // RISK!B7
+  daysTraded: number;         // SETTINGS!B9
+  totalDays: number;          // SETTINGS!B8
+}
+
 export interface RiskProfile {
   id: string;
   name: string;
   initialCapital: number;
-  currentBalance: number;
+  currentBalance: number;     // CAPITAL!E2
   riskPerTradePct: number;
-  targetAnnualReturnPct: number;
+  targetAnnualReturnPct: number; // SETTINGS!B3
   totalEffectiveDays: number;
   maxMissedDaysPct: number;
   isActive: boolean;
   sync: SyncConfig;
+  sheetStats?: SheetStats; // New field to store synced values
 }
 
 export interface DailyStat {
@@ -53,7 +62,7 @@ export interface DailyStat {
   category: TradeCategory;
   subCategory: TradeSubCategory;
   strategy: OptionStrategy;
-  ticker?: string; // New field
+  ticker?: string;
   startOfDayBalance: number;
   riskLimitSnapshot: number;
 }
@@ -77,9 +86,9 @@ export interface DashboardStats {
   daysTraded: number;
   daysSkipped: number;
   categoryBreakdown: Record<string, number>;
-  strategyBreakdown: Record<string, number>; // New
-  tickerPerformance: TickerStat[]; // New
-  allocation: { name: string, value: number }[]; // New
+  strategyBreakdown: Record<string, number>;
+  tickerPerformance: TickerStat[];
+  allocation: { name: string, value: number }[];
 }
 
 export interface Alert {

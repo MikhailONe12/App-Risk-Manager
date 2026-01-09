@@ -1,5 +1,5 @@
 
-import { DailyStat, RiskProfile, SyncConfig } from '../types';
+import { DailyStat, RiskProfile, SyncConfig, SheetStats } from '../types';
 
 /**
  * Service for synchronizing data with Google Sheets via Apps Script.
@@ -33,7 +33,6 @@ export const syncWithGoogleSheets = async (config: SyncConfig, data?: { profile:
     });
 
     if (!response.ok) {
-       // Try to parse error text if possible
        const text = await response.text();
        throw new Error(`Network response was not ok (${response.status}): ${text}`);
     }
@@ -50,83 +49,35 @@ export const syncWithGoogleSheets = async (config: SyncConfig, data?: { profile:
 
 /*
 ======================================================================================
-КОПИРУЙТЕ КОД НИЖЕ В GOOGLE APPS SCRIPT (Extensions > Apps Script)
-COPY THE CODE BELOW INTO GOOGLE APPS SCRIPT
+!!! ВАЖНО / IMPORTANT !!!
+СКОПИРУЙТЕ ВЕСЬ КОД НИЖЕ И ВСТАВЬТЕ В ФАЙЛ Code.gs В ВАШЕМ ПРОЕКТЕ GOOGLE APPS SCRIPT
+COPY ALL CODE BELOW AND PASTE IT INTO THE Code.gs FILE IN YOUR GOOGLE APPS SCRIPT PROJECT
 ======================================================================================
 
-// --- НАСТРОЙКИ КОЛОНОК (КОНФИГУРАЦИЯ) ---
-// Индексы колонок начинаются с 0 (A=0, B=1, C=2, ... I=8, J=9)
-
 const CONFIG = {
-  // Лист 0DTE опционов
-  ZERO_DTE: {
-    sheetName: 'OPTIONS_POSITIONAL',
-    colId: 0,        // A: ID
-    colTicker: 1,    // B: Ticker
-    colPnL: 8,       // I: Realized
-    colDate: 9       // J: Close Date
-  },
-  // Лист Акций
-  STOCKS: {
-    sheetName: 'TRADING_LOG',
-    colDate: 0,      // A: Date (Предполагаем, что дата в A)
-    colTicker: 1,    // B: Ticker
-    colQty: 3,       // D: Quantity
-    colEntry: 4,     // E: Price (Entry)
-    colExit: 5,      // F: Exit Price
-    // PnL считается как (Exit - Entry) * Qty
-  },
-  // Лист Long Options
-  LONG_OPT: {
-    sheetName: 'OPTIONS_DAILY',
-    colDate: 0,      // A: Date
-    colTicker: 1,    // B: Ticker
-    colContracts: 4, // E: Contracts
-    colExit: 6,      // G: Exit
-    colPnL: 7        // H: Предполагаем PnL здесь (так как только Contracts/Exit указаны)
-  },
-  // Лист Профиля
-  PROFILE: {
-    sheetName: 'Profile' 
-  }
+  ZERO_DTE: { sheetName: 'OPTIONS_POSITIONAL', colId: 0, colTicker: 1, colPnL: 8, colDate: 9 },
+  STOCKS: { sheetName: 'TRADING_LOG', colDate: 0, colTicker: 1, colQty: 3, colEntry: 4, colExit: 5 },
+  LONG_OPT: { sheetName: 'OPTIONS_DAILY', colDate: 0, colTicker: 1, colContracts: 4, colExit: 6, colPnL: 7 }
 };
 
-// Функция для обработки GET запросов (чтобы проверить, работает ли скрипт в браузере)
 function doGet(e) {
-  return ContentService.createTextOutput(JSON.stringify({
-    status: 'active',
-    message: 'Script is running. Use POST to send data.'
-  })).setMimeType(ContentService.MimeType.JSON);
+  return ContentService.createTextOutput(JSON.stringify({ status: 'active', message: 'Script is running.' })).setMimeType(ContentService.MimeType.JSON);
 }
 
-// Функция для обработки POST запросов (отправка данных из приложения)
 function doPost(e) {
   const lock = LockService.getScriptLock();
   lock.tryLock(10000);
-
   try {
-    if (!e || !e.postData || !e.postData.contents) {
-      throw new Error("No post data received");
-    }
-
+    if (!e || !e.postData || !e.postData.contents) throw new Error("No data");
     const request = JSON.parse(e.postData.contents);
+    if (!request.sheetId) throw new Error("Missing sheetId");
     
-    if (!request.sheetId) {
-      throw new Error("Missing sheetId");
-    }
-
     const ss = SpreadsheetApp.openById(request.sheetId);
     
-    if (request.action === 'WRITE') {
-      return writeData(ss, request.payload);
-    }
-
-    if (request.action === 'READ') {
-      return readData(ss);
-    }
+    if (request.action === 'WRITE') return writeData(ss, request.payload);
+    if (request.action === 'READ') return readData(ss);
     
     throw new Error("Unknown action");
-    
   } catch (e) {
     return ContentService.createTextOutput(JSON.stringify({status: 'error', message: e.toString()})).setMimeType(ContentService.MimeType.JSON);
   } finally {
@@ -137,41 +88,43 @@ function doPost(e) {
 function formatDate(dateObj) {
   if (!dateObj) return '';
   try {
-    if (typeof dateObj.getMonth === 'function') {
-       return Utilities.formatDate(dateObj, Session.getScriptTimeZone(), "yyyy-MM-dd");
-    }
+    if (typeof dateObj.getMonth === 'function') return Utilities.formatDate(dateObj, Session.getScriptTimeZone(), "yyyy-MM-dd");
     return String(dateObj).split('T')[0];
   } catch (e) { return String(dateObj); }
 }
 
+function getCellValue(ss, sheetName, cellA1) {
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet) return 0;
+  return sheet.getRange(cellA1).getValue();
+}
+
 function readData(ss) {
-  const profileSheet = ss.getSheetByName(CONFIG.PROFILE.sheetName);
-  let profile = null;
-  
-  if (profileSheet) {
-    const pData = profileSheet.getDataRange().getValues();
-    if (pData.length > 1) {
-      profile = {
-        initialCapital: Number(pData[1][0]),
-        riskPerTradePct: Number(pData[1][1]),
-        targetAnnualReturnPct: Number(pData[1][2]),
-        totalEffectiveDays: Number(pData[1][3]),
-        currentBalance: Number(pData[1][4]),
-        name: pData[1][5] || 'Trader'
-      };
+  // --- ЧТЕНИЕ СПЕЦИФИЧЕСКИХ ЯЧЕЕК (ЭНДПОЙНТЫ) ---
+  const profile = {
+    currentBalance: Number(getCellValue(ss, 'CAPITAL', 'E2')),
+    targetAnnualReturnPct: Number(getCellValue(ss, 'SETTINGS', 'B3')) * 100, // Если в таблице 0.15, умножаем на 100 для %
+    
+    // Новые поля статистики из таблицы
+    sheetStats: {
+      targetAmountDollar: Number(getCellValue(ss, 'SETTINGS', 'B4')),
+      remainingGoal: Number(getCellValue(ss, 'CAPITAL', 'J2')),
+      dailyTarget: Number(getCellValue(ss, 'DAILY_TARGET', 'D2')),
+      riskLimit: Number(getCellValue(ss, 'RISK', 'B7')),
+      daysTraded: Number(getCellValue(ss, 'SETTINGS', 'B9')),
+      totalDays: Number(getCellValue(ss, 'SETTINGS', 'B8'))
     }
-  }
+  };
 
   const journal = [];
 
-  // 1. Читаем 0DTE
+  // 1. 0DTE
   const sheetZero = ss.getSheetByName(CONFIG.ZERO_DTE.sheetName);
   if (sheetZero) {
     const data = sheetZero.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
       if (!row[CONFIG.ZERO_DTE.colDate] && !row[CONFIG.ZERO_DTE.colTicker]) continue;
-      
       journal.push({
         id: String(row[CONFIG.ZERO_DTE.colId] || ('zdte_' + i)),
         date: formatDate(row[CONFIG.ZERO_DTE.colDate]),
@@ -185,22 +138,18 @@ function readData(ss) {
     }
   }
 
-  // 2. Читаем STOCKS
+  // 2. STOCKS
   const sheetStocks = ss.getSheetByName(CONFIG.STOCKS.sheetName);
   if (sheetStocks) {
     const data = sheetStocks.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
       if (!row[CONFIG.STOCKS.colTicker]) continue;
-
       const qty = Number(row[CONFIG.STOCKS.colQty]) || 0;
       const entry = Number(row[CONFIG.STOCKS.colEntry]) || 0;
       const exit = Number(row[CONFIG.STOCKS.colExit]) || 0;
       let pnl = 0;
-      if (exit !== 0 && entry !== 0) {
-        pnl = (exit - entry) * qty;
-      }
-
+      if (exit !== 0 && entry !== 0) pnl = (exit - entry) * qty;
       journal.push({
         id: 'stk_' + i + '_' + (row[CONFIG.STOCKS.colTicker]),
         date: formatDate(row[CONFIG.STOCKS.colDate] || new Date()), 
@@ -214,20 +163,17 @@ function readData(ss) {
     }
   }
 
-  // 3. Читаем LONG OPTIONS
+  // 3. LONG OPTIONS
   const sheetLong = ss.getSheetByName(CONFIG.LONG_OPT.sheetName);
   if (sheetLong) {
     const data = sheetLong.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {
       const row = data[i];
       if (!row[CONFIG.LONG_OPT.colTicker]) continue;
-
-      const pnl = Number(row[CONFIG.LONG_OPT.colPnL]) || 0;
-
       journal.push({
         id: 'lopt_' + i,
         date: formatDate(row[CONFIG.LONG_OPT.colDate]),
-        pnlAmount: pnl,
+        pnlAmount: Number(row[CONFIG.LONG_OPT.colPnL]) || 0,
         status: 'TRADED',
         category: 'OPTIONS',
         subCategory: 'LONG_OPTIONS',
@@ -244,14 +190,8 @@ function readData(ss) {
 }
 
 function writeData(ss, payload) {
-  // 1. Профиль
-  const profileSheet = ss.getSheetByName(CONFIG.PROFILE.sheetName) || ss.insertSheet(CONFIG.PROFILE.sheetName);
-  profileSheet.clear();
-  profileSheet.appendRow(['Capital', 'Risk', 'Target', 'Days', 'Balance', 'Name']);
-  const p = payload.profile;
-  profileSheet.appendRow([p.initialCapital, p.riskPerTradePct, p.targetAnnualReturnPct, p.totalEffectiveDays, p.currentBalance, p.name]);
-
-  // 2. Запись сделки (берем последнюю для примера)
+  // Мы не перезаписываем профиль полностью, чтобы не сломать формулы в таблице
+  // Записываем только сделки
   const journal = payload.journal;
   const lastTrade = journal[journal.length - 1];
   if (!lastTrade) return ContentService.createTextOutput(JSON.stringify({status: 'ok'})).setMimeType(ContentService.MimeType.JSON);
